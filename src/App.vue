@@ -354,7 +354,7 @@ onMounted(() => {
   };
 
   loader.load(
-    '/models/Assemble1.glb',
+    '/models/Assembly1.glb',
     (gltf) => {
       const model = gltf.scene;
 
