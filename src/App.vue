@@ -129,13 +129,27 @@ const setView = (type) => {
   controls.update();
 };
 
+// 控制函数
+const toggleRotate = () => {
+  isRotating.value = !isRotating.value;
+};
+
+const resetAll = () => {
+  activeSpeed.value = Math.PI * 0.25;
+  gearRatio.value = -2;
+  lockRatio.value = true;
+  isRotating.value = true;
+  // 视角回到等轴测
+  setView('iso');
+};
+
 onMounted(() => {
   const container = containerRef.value;
   if (!container) return;
 
   // 1. 场景
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111111);
+  scene.background = null;
 
   // 2. 相机
   const camera = new THREE.PerspectiveCamera(
@@ -151,7 +165,7 @@ onMounted(() => {
   window.__threeCamera = camera;
 
   // 3. 渲染器
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -203,7 +217,7 @@ onMounted(() => {
     ctx.fillText(text, size / 2, size / 2 + 8);
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.encoding = THREE.sRGBEncoding;
+    texture.encoding = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
 
     const material = new THREE.SpriteMaterial({
@@ -355,20 +369,6 @@ onMounted(() => {
     },
     { immediate: true }
   );
-
-  // 控制函数
-  const toggleRotate = () => {
-    isRotating.value = !isRotating.value;
-  };
-
-  const resetAll = () => {
-    activeSpeed.value = Math.PI * 0.25;
-    gearRatio.value = -2;
-    lockRatio.value = true;
-    isRotating.value = true;
-    // 视角回到等轴测
-    setView('iso');
-  };
 });
 </script>
 
