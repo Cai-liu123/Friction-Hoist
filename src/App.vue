@@ -383,6 +383,17 @@ onMounted(() => {
         if (child.isMesh) {
           child.castShadow = true;
           child.receiveShadow = true;
+          
+          // 给每个零件添加随机颜色
+          const randomColor = new THREE.Color();
+          randomColor.setHSL(Math.random(), 0.7, 0.6); // 随机色相，固定饱和度和亮度
+          
+          // 创建新的材质并应用随机颜色
+          child.material = new THREE.MeshStandardMaterial({
+            color: randomColor,
+            metalness: 0.3,
+            roughness: 0.4
+          });
         }
 
         // 记录需要上下移动的空物体
