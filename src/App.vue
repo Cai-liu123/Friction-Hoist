@@ -7,8 +7,8 @@
     <div class="control-panel">
       <div class="panel-header">
         <div>
-          <h3>三维传动演示</h3>
-          <p>调节视角与主动 / 传动轴转速</p>
+          <h3>摩擦式提升机演示</h3>
+          <p>模型动画控制与视角切换</p>
         </div>
         <button class="chip-btn" @click="resetAll">复位</button>
       </div>
@@ -25,57 +25,22 @@
 
       <div class="panel-section">
         <div class="section-title">
-          旋转控制
-          <button class="chip-btn small" @click="toggleRotate">
-            {{ isRotating ? '暂停' : '开始' }}
+          动画控制
+          <button class="chip-btn small" @click="toggleAnimation">
+            {{ isAnimating ? '暂停' : '开始' }}
           </button>
         </div>
+      </div>
 
-        <div class="control-row">
-          <div class="label">主动轴转速 (rad/s)</div>
-          <input
-            type="range"
-            min="-6.28"
-            max="6.28"
-            step="0.05"
-            v-model.number="activeSpeed"
-          />
-          <input
-            class="number-input"
-            type="number"
-            step="0.1"
-            v-model.number="activeSpeed"
-          />
+      <div class="panel-section">
+        <div class="section-title">局部显示</div>
+        <div class="view-row">
+          <button @click="focusOnObject('零件5-1轴')">零件5-1轴</button>
+          <button @click="focusOnObject('多绳摩擦天轮轴11')">多绳摩擦天轮轴11</button>
         </div>
-
-        <div class="ratio-row">
-          <label>
-            <input type="checkbox" v-model="lockRatio" />
-            按传动比联动传动轴
-          </label>
-          <span class="ratio-text">当前比：{{ gearRatio.toFixed(2) }}</span>
-        </div>
-
-        <div class="control-row">
-          <div class="label">
-            传动轴转速 (rad/s)
-            <span v-if="lockRatio" class="hint">由主动轴推导</span>
-          </div>
-          <input
-            type="range"
-            min="-6.28"
-            max="6.28"
-            step="0.05"
-            v-model.number="drivenSpeed"
-            :disabled="lockRatio"
-          />
-          <input
-            class="number-input"
-            type="number"
-            step="0.1"
-            v-model.number="drivenSpeed"
-            :disabled="lockRatio"
-          />
+        <div class="view-row">
+          <button @click="focusOnObject('空物体')">空物体</button>
+          <button @click="showAllModel">显示全部</button>
         </div>
       </div>
     </div>
@@ -83,27 +48,47 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import LightDialog from './LightDialog.vue';
+import bgImage from './assets/bg.jpg';
 
 const containerRef = ref(null);
-// 主动轴 / 传动轴角速度（弧度每秒），初始大约 ±45°/s
-const activeSpeed = ref(Math.PI * 0.25);
-const drivenSpeed = ref(-Math.PI * 0.2);
-const isRotating = ref(true);
-const lockRatio = ref(true);
-const gearRatio = ref(-2); // 传动轴 / 主动轴
+const isAnimating = ref(true);
+
+// 需要旋转的特定轴对象（绕z轴）
+const rotatingAxes = ref({
+  '多绳摩擦天轮轴1': null,
+  '多绳摩擦天轮轴11': null,
+  '零件3-1轴': null,
+  '零件5-1轴': null
+});
+
+// 需要上下运动的空物体
+const emptyObj = ref(null);
+const emptyObj001 = ref(null);
+
+// 存储空物体和空物体001的初始Y位置
+let emptyObjInitialY = 0;
+let emptyObj001InitialY = 0;
 
 // 当前模型半径（用于计算不同视角的相机距离）
 const modelRadius = ref(3);
 
-// 为了更直观地观察，将旋转轴统一设置为 three.js 世界坐标系的 Y 轴
-//（即竖直方向），如需改为 X / Z 轴，只需调整下方两个常量
-const ACTIVE_ROT_AXIS = 'z';  // 主动轴围绕哪一轴旋转
-const DRIVEN_ROT_AXIS = 'z';  // 传动轴围绕哪一轴旋转
+// 旋转速度（弧度每秒）
+const rotationSpeed = 1.0;
+
+// 定义旋转轴（参考App.vue的方式）
+const ROTATION_AXIS = 'z'; // 所有旋转对象都绕z轴旋转
+
+// 提升运动参数
+const liftingSpeed = 0.5;
+const liftingRange = 5.0;
+let liftingTime = 0;
+// 将liftingTime保存到window以便resetAll访问
+window.__liftingTime = { value: 0 };
 
 // 切换视角
 const setView = (type) => {
@@ -115,13 +100,13 @@ const setView = (type) => {
   const r = modelRadius.value || 6;
 
   if (type === 'iso') {
-    camera.position.set(r * 0.8, r * 0.9, r * 1.8);
+    camera.position.set(r * 0.4, r * 0.45, r * 1.0);
   } else if (type === 'front') {
-    camera.position.set(0, r * 0.3, r * 2.2);
+    camera.position.set(0, r * 0.15, r * 1.25);
   } else if (type === 'side') {
-    camera.position.set(r * 2.2, r * 0.3, 0.01);
+    camera.position.set(r * 1.25, r * 0.15, 0.01);
   } else if (type === 'top') {
-    camera.position.set(0.01, r * 2.2, 0.01);
+    camera.position.set(0.01, r * 1.25, 0.01);
   }
 
   controls.target.set(0, 0, 0);
@@ -130,16 +115,146 @@ const setView = (type) => {
 };
 
 // 控制函数
-const toggleRotate = () => {
-  isRotating.value = !isRotating.value;
+const toggleAnimation = () => {
+  isAnimating.value = !isAnimating.value;
 };
 
+// 聚焦到指定物体
+const focusOnObject = (objectName) => {
+  const camera = window.__threeCamera;
+  const controls = window.__threeControls;
+  const model = window.__threeModel;
+  const renderer = window.__threeRenderer;
+  const scene = window.__threeScene;
+  if (!camera || !controls || !model || !renderer || !scene) return;
+
+  let targetObject = null;
+
+  model.traverse((child) => {
+    if (child.name === objectName) {
+      targetObject = child;
+    }
+  });
+
+  if (targetObject) {
+    // 获取物体的世界坐标位置
+    const targetPosition = new THREE.Vector3();
+    targetObject.getWorldPosition(targetPosition);
+
+    // 获取物体的边界框
+    const box = new THREE.Box3().setFromObject(targetObject);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+
+    let distance;
+    let cameraOffset;
+
+    // 为每个对象单独设置合适的距离和视角
+    if (objectName === '空物体') {
+      distance = Math.max(maxDim * 1, 5);
+      cameraOffset = new THREE.Vector3(
+        distance * 0.8,  // X轴偏移
+        distance * 1.2,  // Y轴偏移（更高位置）
+        distance * 0.8   // Z轴偏移
+      );
+    } else if (objectName === '零件3-1轴') {
+      distance = Math.max(maxDim * 3.5, 4);
+      cameraOffset = new THREE.Vector3(
+        distance * 0.8,
+        distance * 1.0,
+        distance * 0.8
+      );
+    } else if (objectName === '零件5-1轴') {
+      distance = Math.max(maxDim * 1, 1);
+      cameraOffset = new THREE.Vector3(
+        distance * 0.8,
+        distance * 1.0,
+        distance * 0.8
+      );
+    } else if (objectName === '多绳摩擦天轮轴1') {
+      distance = Math.max(maxDim * 2, 4);
+      cameraOffset = new THREE.Vector3(
+        distance * 0,
+        distance * 1.0,
+        distance * 1.0
+      );
+    } else if (objectName === '多绳摩擦天轮轴11') {
+      distance = Math.max(maxDim * 2, 4);
+      cameraOffset = new THREE.Vector3(
+        distance * 0,
+        distance * 1.0,
+        distance * 1.5
+      );
+    } else {
+      // 其他对象使用默认设置
+      distance = Math.max(maxDim * 4, 5);
+      cameraOffset = new THREE.Vector3(
+        distance * 0.8,
+        distance * 1.2,
+        distance * 0.8
+      );
+    }
+
+    console.log('局部显示目标:', objectName, '位置:', targetPosition, '尺寸:', maxDim, '距离:', distance);
+
+    // 设置控制器目标为物体中心
+    controls.target.copy(targetPosition);
+
+    camera.position.copy(targetPosition).add(cameraOffset);
+    camera.lookAt(targetPosition);
+
+    // 确保控制器正确更新
+    controls.update();
+
+    // 强制更新渲染，确保设置立即生效
+    renderer.render(scene, camera);
+
+    console.log('相机位置设置为:', camera.position, '目标:', controls.target);
+  }
+};
+
+// 显示全部模型
+const showAllModel = () => {
+  const camera = window.__threeCamera;
+  const controls = window.__threeControls;
+  if (!camera || !controls) return;
+
+  controls.target.set(0, 0, 0);
+  setView('iso');
+};
+
+// 复位所有
 const resetAll = () => {
-  activeSpeed.value = Math.PI * 0.25;
-  gearRatio.value = -2;
-  lockRatio.value = true;
-  isRotating.value = true;
-  // 视角回到等轴测
+  isAnimating.value = true;
+  if (window.__liftingTime) {
+    window.__liftingTime.value = 0;
+  }
+  liftingTime = 0;
+
+  // 重置所有旋转轴对象的角度
+  Object.values(rotatingAxes.value).forEach((obj) => {
+    if (obj) {
+      obj.rotation.z = 0;
+    }
+  });
+
+  // 重置空物体和空物体001的位置
+  if (emptyObj.value && emptyObjInitialY !== undefined) {
+    emptyObj.value.position.y = emptyObjInitialY;
+  }
+  if (emptyObj001.value && emptyObj001InitialY !== undefined) {
+    emptyObj001.value.position.y = emptyObj001InitialY;
+  }
+
+  // 确保模型始终锁定在世界坐标系原点
+  const model = window.__threeModel;
+  if (model) {
+    model.rotation.set(0, 0, 0);
+    model.position.set(0, 0, 0);
+    // 保持缩放不变
+  }
+
   setView('iso');
 };
 
@@ -149,14 +264,21 @@ onMounted(() => {
 
   // 1. 场景
   const scene = new THREE.Scene();
-  scene.background = null;
+  window.__threeScene = scene;
 
-  // 2. 相机
+  // 2. 加载背景图片
+  const textureLoader = new THREE.TextureLoader();
+  textureLoader.load(bgImage, (texture) => {
+    texture.encoding = THREE.SRGBColorSpace;
+    scene.background = texture;
+  });
+
+  // 3. 相机
   const camera = new THREE.PerspectiveCamera(
     50,
     container.clientWidth / container.clientHeight,
     0.1,
-    1000
+    10000
   );
   camera.position.set(0, 4, 10);
   camera.lookAt(0, 0, 0);
@@ -164,14 +286,15 @@ onMounted(() => {
   // 暴露给视角控制函数使用
   window.__threeCamera = camera;
 
-  // 3. 渲染器
+  // 4. 渲染器
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
+  window.__threeRenderer = renderer;
 
-  // 4. 环境光 + 平行光
+  // 5. 环境光 + 平行光
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
   scene.add(ambientLight);
 
@@ -179,20 +302,20 @@ onMounted(() => {
   directionalLight.position.set(5, 10, 7);
   scene.add(directionalLight);
 
-  // 5. 轨道控制器
+  // 6. 轨道控制器
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.target.set(0, 0, 0);
+  // 启用平移，允许旋转、缩放和平移
+  controls.enablePan = true;
 
   window.__threeControls = controls;
 
-  // 6. 加载 glb 模型
+  // 7. 加载 glb 模型
   const loader = new GLTFLoader();
-  let emptyObj = null;
-  let emptyObj001 = null;
 
-  // 创建文字精灵（用于标注主动轴 / 传动轴）
+  // 创建文字精灵（用于标注运动的空物体）
   const createLabelSprite = (text, color = '#ffffff') => {
     const canvas = document.createElement('canvas');
     const size = 256;
@@ -231,7 +354,7 @@ onMounted(() => {
   };
 
   loader.load(
-    '/models/Assembly.glb',
+    '/models/摩擦式提升机.glb',
     (gltf) => {
       const model = gltf.scene;
 
@@ -242,78 +365,117 @@ onMounted(() => {
       box.getSize(size);
       box.getCenter(center);
 
-      model.position.sub(center); // 居中到原点
+      // 将模型原点与世界坐标系重合，并居中
+      model.position.sub(center);
 
       const maxAxis = Math.max(size.x, size.y, size.z) || 1;
       // 放大一点，让模型在视野里更占据主体
-      const scale = 15 / maxAxis;
+      const scale = 150/ maxAxis;
       model.scale.setScalar(scale);
 
-      // 遍历上色
-      const colorPalette = [
-        new THREE.Color(0x4fc3f7),
-        new THREE.Color(0xffb74d),
-        new THREE.Color(0xa5d6a7),
-        new THREE.Color(0xce93d8),
-        new THREE.Color(0xff8a65),
-      ];
-      let colorIndex = 0;
+      // 锁定模型的旋转、平移、缩放（确保模型始终保持在世界坐标系原点）
+      model.rotation.set(0, 0, 0);
+      model.position.set(0, 0, 0);
+      model.scale.setScalar(scale); // 保持放大的缩放值
 
+      // 遍历模型，查找特定的轴对象和空物体
       model.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = true;
           child.receiveShadow = true;
-
-          const color = colorPalette[colorIndex % colorPalette.length];
-          colorIndex += 1;
-
-          child.material = new THREE.MeshStandardMaterial({
-            color,
-            metalness: 0.3,
-            roughness: 0.4,
-          });
         }
 
-        // 记录需要旋转的空物体
+        // 记录需要上下移动的空物体
         if (child.name === '空物体') {
-          emptyObj = child;
+          emptyObj.value = child;
+          emptyObjInitialY = child.position.y;
+          console.log('找到空物体（上下移动）:', child);
         } else if (child.name === '空物体001') {
-          emptyObj001 = child;
+          emptyObj001.value = child;
+          emptyObj001InitialY = child.position.y;
+          console.log('找到空物体001（上下移动）:', child);
+        } else if (child.name === '多绳摩擦天轮轴1') {
+          rotatingAxes.value['多绳摩擦天轮轴1'] = child;
+          console.log('找到多绳摩擦天轮轴1（z轴旋转）:', child);
+        } else if (child.name === '多绳摩擦天轮轴11') {
+          rotatingAxes.value['多绳摩擦天轮轴11'] = child;
+          console.log('找到多绳摩擦天轮轴11（z轴旋转）:', child);
+        } else if (child.name === '零件3-1轴') {
+          rotatingAxes.value['零件3-1轴'] = child;
+          console.log('找到零件3-1轴（z轴旋转）:', child);
+        } else if (child.name === '零件5-1轴') {
+          rotatingAxes.value['零件5-1轴'] = child;
+          console.log('找到零件5-1轴（z轴旋转）:', child);
         }
       });
 
+      console.log('旋转轴对象:', rotatingAxes.value);
+      console.log('空物体:', emptyObj.value);
+      console.log('空物体001:', emptyObj001.value);
+
       // 根据模型尺寸适当调整相机距离和控制器目标
-      const radius = (maxAxis * scale) * 0.6;
+      const radius = (maxAxis * scale) * 0.5;
       modelRadius.value = radius;
       controls.target.set(0, 0, 0);
-      camera.position.set(radius * 0.6, radius * 0.7, radius * 1.8);
+      // 调整相机位置，让相机更靠近模型，避免背景遮挡
+      camera.position.set(radius * 0.1, radius * 0.3, radius * 1.0);
       camera.lookAt(0, 0, 0);
 
-      // 在空物体上添加“主动轴”“传动轴”标签
-      if (emptyObj) {
-        const sprite = createLabelSprite('主动轴', '#ffeb3b');
+      // 在运动的空物体上添加标签
+      if (emptyObj.value) {
+        const sprite = createLabelSprite('空物体', '#ffeb3b');
         if (sprite) {
-          sprite.position.set(0, radius * 0.2, 0);
-          emptyObj.add(sprite);
+          sprite.position.set(0, radius * 0.05, 0);
+          emptyObj.value.add(sprite);
         }
       }
-      if (emptyObj001) {
-        const sprite = createLabelSprite('传动轴', '#4fc3f7');
+      if (emptyObj001.value) {
+        const sprite = createLabelSprite('空物体001', '#4fc3f7');
         if (sprite) {
-          sprite.position.set(0, radius * 0.2, 0);
-          emptyObj001.add(sprite);
+          sprite.position.set(0, radius * 0.05, 0);
+          emptyObj001.value.add(sprite);
+        }
+      }
+      // 在旋转的轴对象上添加标签
+      if (rotatingAxes.value['多绳摩擦天轮轴1']) {
+        const sprite = createLabelSprite('多绳摩擦天轮轴1', '#ff8a65');
+        if (sprite) {
+          sprite.position.set(0, radius * 0.03, 0);
+          rotatingAxes.value['多绳摩擦天轮轴1'].add(sprite);
+        }
+      }
+      if (rotatingAxes.value['多绳摩擦天轮轴11']) {
+        const sprite = createLabelSprite('多绳摩擦天轮轴11', '#ce93d8');
+        if (sprite) {
+          sprite.position.set(0, radius * 0.03, 0);
+          rotatingAxes.value['多绳摩擦天轮轴11'].add(sprite);
+        }
+      }
+      if (rotatingAxes.value['零件3-1轴']) {
+        const sprite = createLabelSprite('零件3-1轴', '#ffb74d');
+        if (sprite) {
+          sprite.position.set(0, radius * 0.01, 0);
+          rotatingAxes.value['零件3-1轴'].add(sprite);
+        }
+      }
+      if (rotatingAxes.value['零件5-1轴']) {
+        const sprite = createLabelSprite('零件5-1轴', '#4fc3f7');
+        if (sprite) {
+          sprite.position.set(0, radius * 0.01, 0);
+          rotatingAxes.value['零件5-1轴'].add(sprite);
         }
       }
 
+      window.__threeModel = model;
       scene.add(model);
     },
     undefined,
     (error) => {
-      console.error('加载 Assembly.glb 失败:', error);
+      console.error('加载 摩擦式提升机.glb 失败:', error);
     }
   );
 
-  // 7. 动画循环：让空物体绕 Z 轴旋转
+  // 8. 动画循环：让空物体绕 Z 轴旋转
   let animationId = null;
   const clock = new THREE.Clock();
 
@@ -321,13 +483,34 @@ onMounted(() => {
     animationId = requestAnimationFrame(animate);
     const delta = clock.getDelta();
 
-    // 使用 Vue 中可调的角速度控制旋转
-    if (isRotating.value) {
-      if (emptyObj) {
-        emptyObj.rotation[ACTIVE_ROT_AXIS] += activeSpeed.value * delta;
+    // 确保模型始终锁定在世界坐标系原点
+    const model = window.__threeModel;
+    if (model) {
+      model.rotation.set(0, 0, 0);
+      model.position.set(0, 0, 0);
+    }
+
+    if (isAnimating.value) {
+      // 指定的轴对象沿z轴旋转
+      Object.values(rotatingAxes.value).forEach((axis) => {
+        if (axis) {
+          axis.rotation.z += rotationSpeed * delta;
+        }
+      });
+
+      // 空物体和空物体001相对上下移动
+      if (window.__liftingTime) {
+        window.__liftingTime.value += delta * liftingSpeed;
       }
-      if (emptyObj001) {
-        emptyObj001.rotation[DRIVEN_ROT_AXIS] += drivenSpeed.value * delta;
+      liftingTime += delta * liftingSpeed;
+      const yOffset = Math.sin(liftingTime) * liftingRange;
+      
+      if (emptyObj.value) {
+        emptyObj.value.position.y = emptyObjInitialY + yOffset;
+      }
+      if (emptyObj001.value) {
+        // 空物体001与空物体相对移动（相位差π）
+        emptyObj001.value.position.y = emptyObj001InitialY - yOffset;
       }
     }
 
@@ -358,17 +541,6 @@ onMounted(() => {
       renderer.domElement.parentNode.removeChild(renderer.domElement);
     }
   });
-
-  // 根据主动轴速度自动更新传动轴（当锁定传动比时）
-  watch(
-    [activeSpeed, lockRatio, gearRatio],
-    () => {
-      if (lockRatio.value) {
-        drivenSpeed.value = activeSpeed.value * gearRatio.value;
-      }
-    },
-    { immediate: true }
-  );
 });
 </script>
 
@@ -473,56 +645,10 @@ onMounted(() => {
   cursor: pointer;
   background: #2196f3;
   color: #fff;
+  white-space: nowrap;
 }
 
 .view-row button:hover {
   background: #1976d2;
-}
-
-.control-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-.control-row .label {
-  white-space: nowrap;
-}
-
-.control-row input[type='range'] {
-  flex: 1;
-}
-
-.number-input {
-  width: 60px;
-  padding: 2px 4px;
-  font-size: 11px;
-  border-radius: 4px;
-  border: 1px solid rgba(148, 163, 184, 0.8);
-  background: rgba(15, 23, 42, 0.8);
-  color: #e5e7eb;
-}
-
-.number-input:disabled {
-  opacity: 0.5;
-}
-
-.ratio-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 4px;
-  font-size: 11px;
-}
-
-.ratio-text {
-  opacity: 0.9;
-}
-
-.hint {
-  margin-left: 4px;
-  font-size: 10px;
-  opacity: 0.8;
 }
 </style>
