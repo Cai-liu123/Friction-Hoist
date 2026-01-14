@@ -84,8 +84,8 @@ const rotationSpeed = 1.0;
 const ROTATION_AXIS = 'z'; // 所有旋转对象都绕z轴旋转
 
 // 提升运动参数
-const liftingSpeed = 0.5;
-const liftingRange = 5.0;
+const liftingSpeed = 1.5;
+const liftingRange = 20.0;
 let liftingTime = 0;
 // 将liftingTime保存到window以便resetAll访问
 window.__liftingTime = { value: 0 };
@@ -154,9 +154,9 @@ const focusOnObject = (objectName) => {
     if (objectName === '空物体') {
       distance = Math.max(maxDim * 1, 5);
       cameraOffset = new THREE.Vector3(
-        distance * 0.8,  // X轴偏移
-        distance * 1.2,  // Y轴偏移（更高位置）
-        distance * 0.8   // Z轴偏移
+        distance * 2,  // X轴偏移
+        distance * 4,  // Y轴偏移（更高位置）
+        distance * 3   // Z轴偏移
       );
     } else if (objectName === '零件3-1轴') {
       distance = Math.max(maxDim * 3.5, 4);
@@ -425,7 +425,7 @@ onMounted(() => {
       console.log('空物体001:', emptyObj001.value);
 
       // 根据模型尺寸适当调整相机距离和控制器目标
-      const radius = (maxAxis * scale) * 0.5;
+      const radius = (maxAxis * scale) * 0.5;//可以修改模型视野尺寸
       modelRadius.value = radius;
       controls.target.set(0, 0, 0);
       // 调整相机位置，让相机更靠近模型，避免背景遮挡
@@ -502,28 +502,34 @@ onMounted(() => {
     }
 
     if (isAnimating.value) {
-      // 指定的轴对象沿z轴旋转
-      Object.values(rotatingAxes.value).forEach((axis) => {
-        if (axis) {
-          axis.rotation.z += rotationSpeed * delta;
+        // 更新提升时间
+        if (window.__liftingTime) {
+          window.__liftingTime.value += delta * liftingSpeed;
         }
-      });
-
-      // 空物体和空物体001相对上下移动
-      if (window.__liftingTime) {
-        window.__liftingTime.value += delta * liftingSpeed;
+        liftingTime += delta * liftingSpeed;
+        
+        // 计算上下移动的偏移量
+        const yOffset = Math.sin(liftingTime) * liftingRange;
+        
+        // 空物体和空物体001相对上下移动
+        if (emptyObj.value) {
+          emptyObj.value.position.y = emptyObjInitialY + yOffset;
+        }
+        if (emptyObj001.value) {
+          // 空物体001与空物体相对移动（相位差π）
+          emptyObj001.value.position.y = emptyObj001InitialY - yOffset;
+        }
+        
+        // 指定的轴对象沿z轴使用sin函数旋转
+        // 使用相同的liftingTime保持运动同步
+        const rotationOffset = Math.sin(liftingTime) * rotationSpeed;
+        Object.values(rotatingAxes.value).forEach((axis) => {
+          if (axis) {
+            // 设置旋转角度而不是累加，保持与sin函数同步
+            axis.rotation.z = rotationOffset;
+          }
+        });
       }
-      liftingTime += delta * liftingSpeed;
-      const yOffset = Math.sin(liftingTime) * liftingRange;
-      
-      if (emptyObj.value) {
-        emptyObj.value.position.y = emptyObjInitialY + yOffset;
-      }
-      if (emptyObj001.value) {
-        // 空物体001与空物体相对移动（相位差π）
-        emptyObj001.value.position.y = emptyObj001InitialY - yOffset;
-      }
-    }
 
     controls.update();
     renderer.render(scene, camera);
