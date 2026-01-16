@@ -354,7 +354,7 @@ onMounted(() => {
   };
 
   loader.load(
-    '/models/Assembly1.glb',
+    '/models/摩擦式提升机.glb',
     (gltf) => {
       const model = gltf.scene;
 
